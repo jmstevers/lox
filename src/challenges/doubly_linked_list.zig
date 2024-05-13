@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-pub fn LinkedList(comptime T: type) type {
+pub fn DoublyLinkedList(comptime T: type) type {
     return struct {
         const Node = struct { prev: ?*Node = null, next: ?*Node = null, data: T };
         const Self = @This();
@@ -10,7 +10,15 @@ pub fn LinkedList(comptime T: type) type {
         last: ?*Node = null,
         allocator: Allocator,
 
-        fn deinit(self: *Self) void {
+        pub fn init(allocator: Allocator, elements: []T) !Self {
+            var list = Self{ .allocator = allocator };
+            for (elements) |element| {
+                try list.push(element);
+            }
+            return list;
+        }
+
+        pub fn deinit(self: *Self) void {
             var current = self.first;
             while (current) |n| {
                 const next = n.next;
@@ -21,15 +29,7 @@ pub fn LinkedList(comptime T: type) type {
             self.last = null;
         }
 
-        pub fn init(allocator: Allocator, elements: []T) !Self {
-            var list = Self{ .allocator = allocator };
-            for (elements) |element| {
-                try list.push(element);
-            }
-            return list;
-        }
-
-        pub fn is_empty(self: Self) bool {
+        pub fn isEmpty(self: Self) bool {
             return self.first == null and self.last == null;
         }
 
@@ -104,9 +104,10 @@ test "initialization" {
 
     var data = [_][]const u8{ "hello", "world" };
 
-    var list = try LinkedList([]const u8).new(allocator, &data);
+    var list = try DoublyLinkedList([]const u8).init(allocator, &data);
     defer list.deinit();
 
     try testing.expect(list.find("hello") != null);
     try testing.expect(list.find("world") != null);
+    try testing.expect(list.isEmpty() == false);
 }
