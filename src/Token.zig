@@ -14,11 +14,11 @@ pub const Literal = union(enum) {
     number: f64,
     bool: bool,
 
-    pub fn toString(self: Literal, allocator: std.mem.Allocator) []const u8 {
+    pub fn toString(self: Literal, allocator: std.mem.Allocator) ![]const u8 {
         return switch (self) {
             .null => "null",
             .string => self.string,
-            .number => std.fmt.allocPrint(allocator, "{d}", .{self.number}),
+            .number => try std.fmt.allocPrint(allocator, "{d}", .{self.number}),
             .bool => if (self.bool) "true" else "false",
             .none => unreachable,
         };
@@ -89,24 +89,14 @@ pub const TokenType = enum {
     EOF,
 
     pub fn toValue(self: TokenType) ?[]const u8 {
-        return for (multi_char_tokens) |item| {
+        return for (tokens) |item| {
             if (item.token == self) break item.str;
-        } else for (single_char_tokens) |item| {
-            if (item.token == self) break &[_]u8{item.char};
         } else null;
     }
 
     pub fn parse(str: []const u8) ?TokenType {
-        return for (multi_char_tokens) |item| {
+        return for (tokens) |item| {
             if (std.mem.eql(u8, item.str, str)) break item.token;
-        } else for (single_char_tokens) |item| {
-            if (item.char == str[0]) break item.token;
-        } else null;
-    }
-
-    pub fn parse_char(char: u8) ?TokenType {
-        return for (single_char_tokens) |item| {
-            if (item.char == char) break item.token;
         } else null;
     }
 
@@ -121,25 +111,22 @@ pub const TokenType = enum {
     }
 };
 
-pub const single_char_tokens = [_]struct { token: TokenType, char: u8 }{
-    .{ .token = .LEFT_PAREN, .char = '(' },
-    .{ .token = .RIGHT_PAREN, .char = ')' },
-    .{ .token = .LEFT_BRACE, .char = '{' },
-    .{ .token = .RIGHT_BRACE, .char = '}' },
-    .{ .token = .COMMA, .char = ',' },
-    .{ .token = .DOT, .char = '.' },
-    .{ .token = .MINUS, .char = '-' },
-    .{ .token = .PLUS, .char = '+' },
-    .{ .token = .SEMICOLON, .char = ';' },
-    .{ .token = .SLASH, .char = '/' },
-    .{ .token = .STAR, .char = '*' },
-    .{ .token = .BANG, .char = '!' },
-    .{ .token = .EQUAL, .char = '=' },
-    .{ .token = .GREATER, .char = '>' },
-    .{ .token = .LESS, .char = '<' },
-};
-
-pub const multi_char_tokens = [_]struct { token: TokenType, str: []const u8 }{
+pub const tokens = [_]struct { token: TokenType, str: []const u8 }{
+    .{ .token = .LEFT_PAREN, .str = &[_]u8{'('} },
+    .{ .token = .RIGHT_PAREN, .str = &[_]u8{')'} },
+    .{ .token = .LEFT_BRACE, .str = &[_]u8{'{'} },
+    .{ .token = .RIGHT_BRACE, .str = &[_]u8{'}'} },
+    .{ .token = .COMMA, .str = &[_]u8{','} },
+    .{ .token = .DOT, .str = &[_]u8{'.'} },
+    .{ .token = .MINUS, .str = &[_]u8{'-'} },
+    .{ .token = .PLUS, .str = &[_]u8{'+'} },
+    .{ .token = .SEMICOLON, .str = &[_]u8{';'} },
+    .{ .token = .SLASH, .str = "/" },
+    .{ .token = .STAR, .str = "*" },
+    .{ .token = .BANG, .str = "!" },
+    .{ .token = .EQUAL, .str = "=" },
+    .{ .token = .GREATER, .str = ">" },
+    .{ .token = .LESS, .str = "<" },
     .{ .token = .BANG_EQUAL, .str = "!=" },
     .{ .token = .EQUAL_EQUAL, .str = "==" },
     .{ .token = .GREATER_EQUAL, .str = ">=" },
@@ -164,7 +151,7 @@ pub const multi_char_tokens = [_]struct { token: TokenType, str: []const u8 }{
 
 pub const longest_token_length = blk: {
     var max = 0;
-    for (multi_char_tokens) |item| {
+    for (tokens) |item| {
         if (item.str.len > max) {
             max = item.str.len;
         }
