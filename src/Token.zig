@@ -3,15 +3,44 @@ const std = @import("std");
 type: TokenType,
 lexeme: []const u8,
 line: usize,
+literal: Literal = Literal.none,
 
 const Self = @This();
+
+pub const Literal = union(enum) {
+    none,
+    null,
+    string: []const u8,
+    number: f64,
+    bool: bool,
+
+    pub fn toString(self: Literal, allocator: std.mem.Allocator) []const u8 {
+        return switch (self) {
+            .null => "null",
+            .string => self.string,
+            .number => std.fmt.allocPrint(allocator, "{d}", .{self.number}),
+            .bool => if (self.bool) "true" else "false",
+            .none => unreachable,
+        };
+    }
+};
 
 pub fn init(token_type: TokenType, line: usize) Self {
     return Self{ .type = token_type, .lexeme = token_type.toValue().?, .line = line };
 }
 
-pub fn initWithLexeme(token_type: TokenType, line: usize, lexeme: []const u8) Self {
-    return Self{ .type = token_type, .lexeme = lexeme, .line = line };
+pub fn initWithLexeme(token_type: TokenType, line: usize, lexeme: []const u8) !Self {
+    const literal: Literal = switch (token_type) {
+        TokenType.STRING => Literal{ .string = lexeme },
+        // try parse float else parse int
+        TokenType.NUMBER => Literal{ .number = std.fmt.parseFloat(f64, lexeme) catch @as(f64, @floatFromInt(try std.fmt.parseInt(i32, lexeme, 10))) },
+        TokenType.TRUE => Literal{ .bool = true },
+        TokenType.FALSE => Literal{ .bool = false },
+        TokenType.NULL => Literal.null,
+        else => Literal.none,
+    };
+
+    return Self{ .type = token_type, .lexeme = lexeme, .line = line, .literal = literal };
 }
 
 pub const TokenType = enum {
