@@ -18,7 +18,7 @@ pub fn toString(self: Self, allocator: Allocator) anyerror![]const u8 {
     const right = try self.right.toString(allocator);
     defer allocator.free(right);
 
-    return try std.fmt.allocPrint(allocator, "({s} {s} {s})", .{ left, operator, right });
+    return try std.fmt.allocPrint(allocator, "{s} {s} {s}", .{ left, operator, right });
 }
 
 pub fn expr(self: *Self) Expr {
