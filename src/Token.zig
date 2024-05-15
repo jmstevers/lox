@@ -17,10 +17,10 @@ pub const Literal = union(enum) {
     pub fn toString(self: Literal, allocator: std.mem.Allocator) ![]const u8 {
         return switch (self) {
             .null => "null",
-            .string => self.string,
-            .number => try std.fmt.allocPrint(allocator, "{d}", .{self.number}),
+            .string => |str| str,
+            .number => |num| try std.fmt.allocPrint(allocator, "{d}", .{num}),
             .bool => if (self.bool) "true" else "false",
-            .none => unreachable,
+            .none => " ",
         };
     }
 };
@@ -112,15 +112,15 @@ pub const TokenType = enum {
 };
 
 pub const tokens = [_]struct { token: TokenType, str: []const u8 }{
-    .{ .token = .LEFT_PAREN, .str = &[_]u8{'('} },
-    .{ .token = .RIGHT_PAREN, .str = &[_]u8{')'} },
-    .{ .token = .LEFT_BRACE, .str = &[_]u8{'{'} },
-    .{ .token = .RIGHT_BRACE, .str = &[_]u8{'}'} },
-    .{ .token = .COMMA, .str = &[_]u8{','} },
-    .{ .token = .DOT, .str = &[_]u8{'.'} },
-    .{ .token = .MINUS, .str = &[_]u8{'-'} },
-    .{ .token = .PLUS, .str = &[_]u8{'+'} },
-    .{ .token = .SEMICOLON, .str = &[_]u8{';'} },
+    .{ .token = .LEFT_PAREN, .str = "(" },
+    .{ .token = .RIGHT_PAREN, .str = ")" },
+    .{ .token = .LEFT_BRACE, .str = "{" },
+    .{ .token = .RIGHT_BRACE, .str = "}" },
+    .{ .token = .COMMA, .str = "," },
+    .{ .token = .DOT, .str = "." },
+    .{ .token = .MINUS, .str = "-" },
+    .{ .token = .PLUS, .str = "+" },
+    .{ .token = .SEMICOLON, .str = ";" },
     .{ .token = .SLASH, .str = "/" },
     .{ .token = .STAR, .str = "*" },
     .{ .token = .BANG, .str = "!" },

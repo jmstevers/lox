@@ -1,14 +1,15 @@
 const std = @import("std");
-const Expr = @import("Expr.zig").Expr;
+const Expr = @import("expr.zig").Expr;
 const Token = @import("Token.zig");
 const Allocator = std.mem.Allocator;
+
 const Self = @This();
 
-left: Expr,
+left: *Expr,
 operator: Token,
-right: Expr,
+right: *Expr,
 
-pub fn toString(self: *Self, allocator: Allocator) anyerror![]const u8 {
+pub fn toString(self: Self, allocator: Allocator) anyerror![]const u8 {
     const left = try self.left.toString(allocator);
     defer allocator.free(left);
 
