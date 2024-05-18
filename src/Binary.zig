@@ -5,9 +5,9 @@ const Allocator = std.mem.Allocator;
 
 const Self = @This();
 
-left: *Expr,
+left: Expr,
 operator: Token,
-right: *Expr,
+right: Expr,
 
 pub fn toString(self: Self, allocator: Allocator) anyerror![]const u8 {
     const left = try self.left.toString(allocator);

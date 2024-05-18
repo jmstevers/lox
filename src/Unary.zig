@@ -2,10 +2,11 @@ const std = @import("std");
 const Expr = @import("expr.zig").Expr;
 const Token = @import("Token.zig");
 const Allocator = std.mem.Allocator;
+
 const Self = @This();
 
 operator: Token,
-right: *Expr,
+right: Expr,
 
 pub fn toString(self: Self, allocator: Allocator) anyerror![]const u8 {
     const operator = self.operator.type.toValue().?;

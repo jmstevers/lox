@@ -1,6 +1,7 @@
 const std = @import("std");
 const Token = @import("Token.zig");
 const TokenType = @import("Token.zig").TokenType;
+const pretty = @import("pretty.zig");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const allocPrint = std.fmt.allocPrint;
@@ -9,6 +10,156 @@ pub const Binary = @import("Binary.zig");
 pub const Unary = @import("Unary.zig");
 pub const Grouping = @import("Grouping.zig");
 pub const Literal = @import("Literal.zig");
+
+const Parser = struct {
+    tokens: []Token,
+    current: usize,
+
+    const Self = @This();
+
+    fn match(self: *Self, types: []const TokenType) bool {
+        for (types) |t| {
+            if (self.check(t)) {
+                _ = self.advance();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    fn check(self: Self, t: TokenType) bool {
+        if (self.isAtEnd()) return false;
+        return self.peek().type == t;
+    }
+
+    fn advance(self: *Self) Token {
+        if (!self.isAtEnd()) self.current += 1;
+        return self.previous();
+    }
+
+    fn isAtEnd(
+        self: Self,
+    ) bool {
+        return self.peek().type == TokenType.EOF;
+    }
+
+    fn peek(self: Self) Token {
+        return self.tokens[self.current];
+    }
+
+    fn previous(self: Self) Token {
+        return self.tokens[self.current - 1];
+    }
+
+    fn consume(self: *Self, t: TokenType, message: []const u8) Token {
+        if (self.check(t)) return self.advance();
+        std.debug.panic("Expecting token {s}: {s}", .{ t.toValue().?, message });
+    }
+
+    fn expression(self: *Self) Expr {
+        return self.equality();
+    }
+
+    fn equality(self: *Self) Expr {
+        var expr = self.comparison();
+
+        while (self.match(&[_]TokenType{ TokenType.BANG_EQUAL, TokenType.EQUAL_EQUAL })) {
+            const op = self.previous();
+            const right = self.comparison();
+            var binary = Binary{ .left = expr, .operator = op, .right = right };
+            expr = binary.expr();
+        }
+
+        return expr;
+    }
+
+    fn comparison(self: *Self) Expr {
+        var expr = self.term();
+
+        while (self.match(&[_]TokenType{ TokenType.GREATER, TokenType.GREATER_EQUAL, TokenType.LESS, TokenType.LESS_EQUAL })) {
+            const op = self.previous();
+            const right = self.term();
+            var binary = Binary{ .left = expr, .operator = op, .right = right };
+            expr = binary.expr();
+        }
+
+        return expr;
+    }
+
+    fn term(self: *Self) Expr {
+        var expr = self.factor();
+
+        while (self.match(&[_]TokenType{ TokenType.MINUS, TokenType.PLUS })) {
+            const op = self.previous();
+            const right = self.factor();
+            var binary = Binary{ .left = expr, .operator = op, .right = right };
+            expr = binary.expr();
+        }
+
+        return expr;
+    }
+
+    fn factor(self: *Self) Expr {
+        var expr = self.unary();
+
+        while (self.match(&[_]TokenType{ TokenType.SLASH, TokenType.STAR })) {
+            const op = self.previous();
+            const right = self.unary();
+            var binary = Binary{ .left = expr, .operator = op, .right = right };
+            expr = binary.expr();
+        }
+
+        return expr;
+    }
+
+    fn unary(self: *Self) Expr {
+        if (self.match(&[_]TokenType{ TokenType.BANG, TokenType.MINUS })) {
+            const op = self.previous();
+            const right = self.unary();
+            var unar = Unary{ .operator = op, .right = right };
+            return unar.expr();
+        }
+
+        return self.primary();
+    }
+
+    fn primary(self: *Self) Expr {
+        if (self.match(&[_]TokenType{TokenType.FALSE})) {
+            var literal = Literal{ .value = Token.Literal{ .bool = false } };
+            return literal.expr();
+        }
+        if (self.match(&[_]TokenType{TokenType.TRUE})) {
+            var literal = Literal{ .value = Token.Literal{ .bool = true } };
+            return literal.expr();
+        }
+        if (self.match(&[_]TokenType{TokenType.NULL})) {
+            var literal = Literal{ .value = Token.Literal.null };
+            return literal.expr();
+        }
+
+        if (self.match(&[_]TokenType{ TokenType.NUMBER, TokenType.STRING })) {
+            var literal = Literal{ .value = self.previous().literal };
+            return literal.expr();
+        }
+
+        if (self.match(&[_]TokenType{TokenType.LEFT_PAREN})) {
+            const expr = self.expression();
+            _ = self.consume(TokenType.RIGHT_PAREN, "Expect ')' after expression.");
+            var grouping = Grouping{ .expression = expr };
+            return grouping.expr();
+        }
+
+        std.debug.panic("Expect expression.", .{});
+    }
+
+    pub fn init(tokens: []Token) Self {
+        return Self{ .tokens = tokens, .current = 0 };
+    }
+
+    pub fn parse(self: *Self) Expr {
+        return self.expression();
+    }
+};
 
 pub const Expr = union(enum) {
     binary: *Binary,
@@ -29,296 +180,50 @@ pub const Expr = union(enum) {
             inline else => |e| e.toString(allocator),
         };
     }
-
-    pub fn parse(source: *ArrayList(Token)) anyerror!Self {
-        var expression: Expr = undefined;
-        var start = 0;
-        var end = 1;
-        while (end < source.items.len) : ({
-            start = end;
-            end += 1;
-        }) {
-            const token = source[start];
-            switch (token.type) {
-                TokenType.LEFT_PAREN => {
-                    _ = source.orderedRemove(0);
-                    const left = try parse(source);
-
-                    if (source.items[0].type == TokenType.RIGHT_PAREN) return error.ExpectedRightParenthesis;
-
-                    _ = source.orderedRemove(0);
-
-                    var grouping = Grouping{ .expression = &left };
-                    expression = grouping.expr();
-                },
-                TokenType.BANG_EQUAL, TokenType.EQUAL_EQUAL, TokenType.MINUS, TokenType.PLUS, TokenType.GREATER, TokenType.GREATER_EQUAL, TokenType.LESS, TokenType.LESS_EQUAL, TokenType.SLASH, TokenType.STAR => {
-                    _ = source.orderedRemove(0);
-                    var right = try parse(source);
-
-                    var binary = Binary{
-                        .left = &expression,
-                        .operator = token,
-                        .right = &right,
-                    };
-
-                    expression = binary.expr();
-                },
-                TokenType.BANG, TokenType.MINUS => {
-                    _ = source.orderedRemove(0);
-                    var right = try parse(source);
-
-                    var unar = Unary{
-                        .operator = token,
-                        .right = &right,
-                    };
-
-                    expression = unar.expr();
-                },
-                TokenType.TRUE, TokenType.FALSE, TokenType.NULL, TokenType.NUMBER, TokenType.STRING => blk: {
-                    const value = source.items[0].literal;
-
-                    var literal = Literal{ .value = value };
-
-                    break :blk literal.expr();
-                },
-                TokenType.LEFT_PAREN => blk: {
-                    _ = source.orderedRemove(0);
-                    var left = try parse(source);
-
-                    if (source.items[0].type != TokenType.RIGHT_PAREN) {
-                        std.log.err("Expected ')' after {s}", .{@tagName(source.items[0].type)});
-                        break :blk error.ExpectedRightParenthesis;
-                    }
-
-                    _ = source.orderedRemove(0);
-
-                    var grouping = Grouping{ .expression = &left };
-
-                    break :blk grouping.expr();
-                },
-                else => {},
-            }
-        }
-    }
-
-    // pub fn parse(source: *ArrayList(Token)) anyerror!Self {
-    //     if (source.items.len == 0) {
-    //         return error.ExpectedExpression;
-    //     }
-    //     std.debug.print("\nparse 1 {s}\n", .{@tagName(source.items[0].type)});
-
-    //     var expression = try comparison(source);
-
-    //     for (source.items) |token| {
-    //         switch (token.type) {
-    //             TokenType.BANG_EQUAL, TokenType.EQUAL_EQUAL => {
-    //                 _ = source.orderedRemove(0);
-    //                 std.debug.print("\nparse 2 {s}\n", .{@tagName(source.items[0].type)});
-
-    //                 var right = try comparison(source);
-
-    //                 var binary = Binary{
-    //                     .left = &expression,
-    //                     .operator = token,
-    //                     .right = &right,
-    //                 };
-
-    //                 expression = binary.expr();
-    //             },
-    //             else => {},
-    //         }
-    //     }
-    //     return expression;
-    // }
-
-    // fn comparison(source: *ArrayList(Token)) anyerror!Self {
-    //     if (source.items.len == 0) {
-    //         return error.ExpectedExpression;
-    //     }
-
-    //     std.debug.print("\ncomparison 1 {s}\n", .{@tagName(source.items[0].type)});
-
-    //     var expression = try term(source);
-
-    //     for (source.items) |token| {
-    //         switch (token.type) {
-    //             TokenType.GREATER, TokenType.GREATER_EQUAL, TokenType.LESS, TokenType.LESS_EQUAL => {
-    //                 _ = source.orderedRemove(0);
-    //                 std.debug.print("\ncomparison 2 {s}\n", .{@tagName(source.items[0].type)});
-
-    //                 var right = try term(source);
-
-    //                 var binary = Binary{
-    //                     .left = &expression,
-    //                     .operator = token,
-    //                     .right = &right,
-    //                 };
-
-    //                 defer std.debug.print("comparison completed\n", .{});
-
-    //                 expression = binary.expr();
-    //             },
-    //             else => {},
-    //         }
-    //     }
-    //     return expression;
-    // }
-
-    // fn term(source: *ArrayList(Token)) anyerror!Self {
-    //     if (source.items.len == 0) {
-    //         return error.ExpectedExpression;
-    //     }
-
-    //     std.debug.print("\nterm 1 {s}\n", .{@tagName(source.items[0].type)});
-
-    //     var expression = try factor(source);
-
-    //     for (source.items) |token| {
-    //         switch (token.type) {
-    //             TokenType.MINUS, TokenType.PLUS => {
-    //                 _ = source.orderedRemove(0);
-
-    //                 std.debug.print("\nterm 2 {s}\n", .{@tagName(source.items[0].type)});
-
-    //                 var right = try factor(source);
-
-    //                 var binary = Binary{
-    //                     .left = &expression,
-    //                     .operator = token,
-    //                     .right = &right,
-    //                 };
-
-    //                 defer std.debug.print("term completed\n", .{});
-
-    //                 expression = binary.expr();
-    //             },
-    //             else => {},
-    //         }
-    //     }
-    //     return expression;
-    // }
-
-    // fn factor(source: *ArrayList(Token)) anyerror!Self {
-    //     if (source.items.len == 0) {
-    //         return error.ExpectedExpression;
-    //     }
-
-    //     std.debug.print("\nfactor 1 {s}\n", .{@tagName(source.items[0].type)});
-
-    //     var expression = try unary(source);
-
-    //     for (source.items) |token| {
-    //         switch (token.type) {
-    //             TokenType.SLASH, TokenType.STAR => {
-    //                 _ = source.orderedRemove(0);
-
-    //                 std.debug.print("\nfactor 2 {s}\n", .{@tagName(source.items[0].type)});
-
-    //                 var right = try unary(source);
-
-    //                 var binary = Binary{
-    //                     .left = &expression,
-    //                     .operator = token,
-    //                     .right = &right,
-    //                 };
-
-    //                 expression = binary.expr();
-    //             },
-    //             else => {},
-    //         }
-    //     }
-    //     return expression;
-    // }
-
-    // fn unary(source: *ArrayList(Token)) anyerror!Self {
-    //     if (source.items.len == 0) {
-    //         return error.ExpectedExpression;
-    //     }
-
-    //     return switch (source.items[0].type) {
-    //         TokenType.BANG, TokenType.MINUS => blk: {
-    //             const operator = source.items[0];
-    //             _ = source.orderedRemove(0);
-    //             var right = try unary(source);
-
-    //             var unar = Unary{
-    //                 .operator = operator,
-    //                 .right = &right,
-    //             };
-
-    //             break :blk unar.expr();
-    //         },
-    //         else => blk: {
-    //             std.debug.print("\nunary {s}\n", .{@tagName(source.items[0].type)});
-
-    //             break :blk try primary(source);
-    //         },
-    //     };
-    // }
-
-    // fn primary(source: *ArrayList(Token)) anyerror!Self {
-    //     if (source.items.len == 0) {
-    //         return error.ExpectedExpression;
-    //     }
-
-    //     std.debug.print("\nprimary {s}\n", .{@tagName(source.items[0].type)});
-
-    //     return switch (source.items[0].type) {
-    //         TokenType.TRUE, TokenType.FALSE, TokenType.NULL, TokenType.NUMBER, TokenType.STRING => blk: {
-    //             const value = source.items[0].literal;
-
-    //             var literal = Literal{ .value = value };
-
-    //             break :blk literal.expr();
-    //         },
-    //         TokenType.LEFT_PAREN => blk: {
-    //             _ = source.orderedRemove(0);
-    //             var left = try parse(source);
-
-    //             if (source.items[0].type != TokenType.RIGHT_PAREN) {
-    //                 std.log.err("Expected ')' after {s}", .{@tagName(source.items[0].type)});
-    //                 break :blk error.ExpectedRightParenthesis;
-    //             }
-
-    //             _ = source.orderedRemove(0);
-
-    //             var grouping = Grouping{ .expression = &left };
-
-    //             break :blk grouping.expr();
-    //         },
-    //         else => return error.ExpectedPrimary,
-    //     };
-    // }
 };
 
 test "pretty print" {
     const allocator = std.testing.allocator;
 
-    var source = ArrayList(Token).init(allocator);
-    defer source.deinit();
-
-    try source.appendSlice(&[_]Token{
-        Token.init(TokenType.LEFT_PAREN, 1),
-        Token.init(TokenType.LEFT_PAREN, 1),
+    var source = [_]Token{
         Token.init(
             TokenType.MINUS,
             1,
         ),
         try Token.initWithLexeme(TokenType.NUMBER, 1, "123"),
-        Token.init(TokenType.RIGHT_PAREN, 1),
         Token.init(TokenType.STAR, 1),
-        Token.init(TokenType.LEFT_PAREN, 1),
         try Token.initWithLexeme(TokenType.NUMBER, 1, "45.67"),
-        Token.init(TokenType.RIGHT_PAREN, 1),
-        Token.init(TokenType.RIGHT_PAREN, 1),
-    });
+        try Token.initWithLexeme(TokenType.EOF, 1, ""),
+    };
 
-    const expression = try Expr.parse(&source);
+    var parser = Parser.init(&source);
 
-    const result = try expression.toString(allocator);
-    defer allocator.free(result);
+    const expression = parser.parse();
 
-    std.debug.print("\n{s}\n", .{result});
+    // const expected = Expr{ .binary = @constCast(&Binary{
+    //     .left = blk: {
+    //         var unar = Unary{ .operator = Token.init(
+    //             TokenType.MINUS,
+    //             1,
+    //         ), .right = blk2: {
+    //             var lit = Literal{ .value = Token.Literal{ .number = 123 } };
+    //             break :blk2 lit.expr();
+    //         } };
+    //         break :blk unar.expr();
+    //     },
+    //     .operator = Token.init(TokenType.STAR, 1),
+    //     .right = blk: {
+    //         var lit = Literal{ .value = Token.Literal{ .number = 45.67 } };
+    //         break :blk lit.expr();
+    //     },
+    // }) };
 
-    try std.testing.expectEqualStrings("((- 123) * (45.67))", result);
+    // try std.testing.expectEqualDeep(expected, expression);
+
+    // const result = try expression.toString(allocator);
+    // defer allocator.free(result);
+
+    // try std.json.stringify(&expression, .{}, std.io.getStdOut().writer());
+
+    // try std.testing.expectEqualStrings("((- 123) * (45.67))", result);
 }
